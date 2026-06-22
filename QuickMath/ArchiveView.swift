@@ -1,242 +1,166 @@
 import SwiftUI
-import Charts
 
+/// Pro feature: full contact history, circle health rings, streak, and CSV export.
 struct InsightsView: View {
     @EnvironmentObject var appModel: AppModel
     @EnvironmentObject var store: Store
     @Environment(\.dismiss) private var dismiss
 
-    @State private var selectedSegment = 0
-    private let segments = ["History", "Dual Wave", "Insights"]
+    @State private var showExportSheet = false
+    @State private var csvContent = ""
+
+    private let circleTags = ["family", "work", "friends"]
 
     var body: some View {
         NavigationStack {
             ZStack {
                 QMBackground()
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 20) {
+                        // Streak
+                        HStack(spacing: 12) {
+                            MetricTile(value: "\(appModel.weekStreak)", label: "week streak")
+                            MetricTile(value: "\(appModel.touchEvents.count)", label: "total touches")
+                            MetricTile(value: "\(appModel.people.count)", label: "in orbit")
+                        }
 
-                if !store.isPro {
-                    VStack(spacing: 16) {
-                        Image(systemName: "lock.fill")
-                            .font(.system(size: 48))
-                            .foregroundStyle(Color.qmAccent)
-                        Text("Tideline Pro Required")
-                            .font(.title2.weight(.bold))
-                        Text("Unlock multi-month history, dual-wave comparison and insights.")
-                            .multilineTextAlignment(.center)
-                            .foregroundStyle(.secondary)
-                            .padding(.horizontal, 32)
-                        Button("Dismiss") { dismiss() }
-                            .softButton()
-                    }
-                } else {
-                    ScrollView {
-                        VStack(spacing: 24) {
-                            Picker("View", selection: $selectedSegment) {
-                                ForEach(0..<segments.count, id: \.self) { i in
-                                    Text(segments[i]).tag(i)
+                        // Circle health rings
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("Circle Health")
+                                .font(.headline)
+
+                            ForEach(circleTags, id: \.self) { tag in
+                                let health = appModel.circleHealth(tag: tag)
+                                let members = appModel.people.filter { $0.circleTag == tag }
+                                if !members.isEmpty {
+                                    CircleHealthRow(tag: tag, health: health, count: members.count)
                                 }
                             }
-                            .pickerStyle(.segmented)
-                            .padding(.horizontal, 16)
 
-                            switch selectedSegment {
-                            case 0: historySection
-                            case 1: dualWaveSection
-                            default: insightsSection
+                            let untagged = appModel.people.filter { $0.circleTag.isEmpty }
+                            if !untagged.isEmpty {
+                                CircleHealthRow(tag: "general", health: appModel.circleHealth(tag: ""), count: untagged.count)
                             }
 
-                            Spacer(minLength: 32)
+                            if appModel.people.allSatisfy({ $0.circleTag.isEmpty }) || appModel.people.isEmpty {
+                                Text("Add circle tags to people to see health rings.")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .frame(maxWidth: .infinity)
+                                    .multilineTextAlignment(.center)
+                                    .padding(.vertical, 8)
+                            }
                         }
-                        .padding(.top, 8)
+
+                        // Recent activity
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Recent Activity")
+                                .font(.headline)
+
+                            if appModel.touchEvents.isEmpty {
+                                Text("No touches logged yet. Tap the checkmark on any overdue contact to start.")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .padding(.vertical, 8)
+                            } else {
+                                ForEach(Array(appModel.touchEvents.prefix(20))) { event in
+                                    if let person = appModel.people.first(where: { $0.id == event.personID }) {
+                                        HStack {
+                                            VStack(alignment: .leading, spacing: 2) {
+                                                Text(person.name)
+                                                    .font(.subheadline.weight(.medium))
+                                                Text(event.channel.capitalized + (event.note.isEmpty ? "" : " · \(event.note)"))
+                                                    .font(.caption)
+                                                    .foregroundStyle(.secondary)
+                                                    .lineLimit(1)
+                                            }
+                                            Spacer()
+                                            Text(event.date, style: .date)
+                                                .font(.caption2)
+                                                .foregroundStyle(.tertiary)
+                                        }
+                                        .qmCard()
+                                    }
+                                }
+                            }
+                        }
+
+                        // Export
+                        VStack(spacing: 8) {
+                            Button {
+                                csvContent = appModel.exportCSV()
+                                showExportSheet = true
+                            } label: {
+                                Label("Export Touch Log (CSV)", systemImage: "square.and.arrow.up")
+                                    .frame(maxWidth: .infinity)
+                            }
+                            .prominentButton()
+                        }
                     }
+                    .padding()
                 }
             }
             .navigationTitle("Insights")
-            .navigationBarTitleDisplayMode(.inline)
+            .navigationBarTitleDisplayMode(.large)
             .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
+                ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }
                 }
             }
-        }
-    }
-
-    // MARK: - History
-    private var historySection: some View {
-        VStack(spacing: 16) {
-            // Full history chart
-            if appModel.allEntries.isEmpty {
-                Text("No data yet. Start logging your energy each day.")
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                    .padding(32)
-            } else {
-                let sorted = appModel.allEntries.sorted { $0.date < $1.date }
-                Chart {
-                    ForEach(Array(sorted.enumerated()), id: \.offset) { idx, entry in
-                        LineMark(
-                            x: .value("Day", idx),
-                            y: .value("Level", entry.level)
-                        )
-                        .foregroundStyle(Color.qmAccent)
-                        .lineStyle(StrokeStyle(lineWidth: 2))
-                        .interpolationMethod(.catmullRom)
-
-                        AreaMark(
-                            x: .value("Day", idx),
-                            yStart: .value("Base", 0),
-                            yEnd: .value("Level", entry.level)
-                        )
-                        .foregroundStyle(Color.qmAccent.opacity(0.15))
-                        .interpolationMethod(.catmullRom)
-                    }
-                }
-                .chartYScale(domain: 0...10)
-                .chartXAxis(.hidden)
-                .frame(height: 180)
-                .padding(.horizontal, 16)
-
-                // Entry list
-                LazyVStack(spacing: 1) {
-                    ForEach(sorted.reversed()) { entry in
-                        HStack {
-                            Text(entry.date, style: .date)
-                                .font(.subheadline)
-                            Spacer()
-                            Text(entry.partOfDay.capitalized)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                            Text("\(entry.level)")
-                                .font(.headline.monospacedDigit())
-                                .foregroundStyle(Color.qmAccent)
-                                .frame(width: 28, alignment: .trailing)
-                        }
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 10)
-                        .background(Color.qmCard)
-                    }
-                }
-                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                .padding(.horizontal, 16)
+            .sheet(isPresented: $showExportSheet) {
+                ShareSheet(activityItems: [csvContent])
             }
         }
     }
+}
 
-    // MARK: - Dual Wave
-    private var dualWaveSection: some View {
-        VStack(spacing: 16) {
-            Text("Morning vs Evening")
-                .font(.headline)
+// MARK: - Circle Health Row
 
-            let mornings = appModel.allEntries.filter { $0.partOfDay == "morning" }.sorted { $0.date < $1.date }
-            let evenings = appModel.allEntries.filter { $0.partOfDay == "evening" }.sorted { $0.date < $1.date }
+struct CircleHealthRow: View {
+    let tag: String
+    let health: Double
+    let count: Int
 
-            if mornings.isEmpty && evenings.isEmpty {
-                Text("Use the morning/evening toggle when logging to see your dual-wave comparison.")
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                    .padding(32)
-            } else {
-                Chart {
-                    ForEach(Array(mornings.enumerated()), id: \.offset) { idx, entry in
-                        LineMark(
-                            x: .value("Day", idx),
-                            y: .value("Morning", entry.level),
-                            series: .value("Time", "Morning")
-                        )
-                        .foregroundStyle(Color.qmAccent)
-                        .interpolationMethod(.catmullRom)
-                    }
-                    ForEach(Array(evenings.enumerated()), id: \.offset) { idx, entry in
-                        LineMark(
-                            x: .value("Day", idx),
-                            y: .value("Evening", entry.level),
-                            series: .value("Time", "Evening")
-                        )
-                        .foregroundStyle(Color.qmCorrect)
-                        .interpolationMethod(.catmullRom)
-                    }
-                }
-                .chartYScale(domain: 0...10)
-                .chartXAxis(.hidden)
-                .chartLegend(.visible)
-                .frame(height: 180)
-                .padding(.horizontal, 16)
-
-                HStack(spacing: 16) {
-                    HStack(spacing: 6) {
-                        Circle().fill(Color.qmAccent).frame(width: 10, height: 10)
-                        Text("Morning").font(.caption).foregroundStyle(.secondary)
-                    }
-                    HStack(spacing: 6) {
-                        Circle().fill(Color.qmCorrect).frame(width: 10, height: 10)
-                        Text("Evening").font(.caption).foregroundStyle(.secondary)
-                    }
-                }
-            }
-        }
-        .padding(.horizontal, 16)
-    }
-
-    // MARK: - Insights
-    private var insightsSection: some View {
-        VStack(spacing: 16) {
-            HStack(spacing: 12) {
-                MetricTile(
-                    value: String(format: "%.1f", appModel.sevenDayAverage),
-                    label: "7-day avg"
-                )
-                MetricTile(
-                    value: "\(appModel.currentStreak)",
-                    label: "Day streak"
-                )
-                MetricTile(
-                    value: appModel.bestTimeOfDay,
-                    label: "Best time"
-                )
-            }
-
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Energy Insights")
-                    .font(.headline)
-
-                insightRow(
-                    icon: "sun.max",
-                    title: "Best time of day",
-                    value: appModel.bestTimeOfDay
-                )
-                insightRow(
-                    icon: "flame",
-                    title: "Current streak",
-                    value: "\(appModel.currentStreak) days"
-                )
-                insightRow(
-                    icon: "chart.line.uptrend.xyaxis",
-                    title: "Total entries",
-                    value: "\(appModel.allEntries.count)"
-                )
-                insightRow(
-                    icon: "waveform.path.ecg",
-                    title: "Average energy",
-                    value: String(format: "%.1f / 10", appModel.sevenDayAverage)
-                )
-            }
-            .qmCard()
-        }
-        .padding(.horizontal, 16)
-    }
-
-    private func insightRow(icon: String, title: String, value: String) -> some View {
+    var body: some View {
         HStack(spacing: 12) {
-            Image(systemName: icon)
-                .foregroundStyle(Color.qmAccent)
-                .frame(width: 24)
-            Text(title)
-                .font(.subheadline)
+            ZStack {
+                Circle()
+                    .strokeBorder(Color.qmHair, lineWidth: 2)
+                    .frame(width: 40, height: 40)
+                Circle()
+                    .trim(from: 0, to: health)
+                    .stroke(healthColor, style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                    .frame(width: 40, height: 40)
+                    .rotationEffect(.degrees(-90))
+                    .animation(.easeInOut(duration: 0.5), value: health)
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                Text(tag.capitalized)
+                    .font(.subheadline.weight(.medium))
+                Text("\(count) people · \(Int(health * 100))% in orbit")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
             Spacer()
-            Text(value)
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(.secondary)
         }
+        .qmCard()
     }
+
+    private var healthColor: Color {
+        if health >= 0.8 { return Color.qmCorrect }
+        if health >= 0.5 { return Color(hex: "#FF9500") }
+        return Color.qmWrong
+    }
+}
+
+// MARK: - ShareSheet
+
+struct ShareSheet: UIViewControllerRepresentable {
+    let activityItems: [Any]
+
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: activityItems, applicationActivities: nil)
+    }
+
+    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
 }

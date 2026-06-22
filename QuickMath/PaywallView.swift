@@ -4,108 +4,117 @@ struct PaywallView: View {
     @EnvironmentObject var store: Store
     @Environment(\.dismiss) private var dismiss
 
-    private let benefits = [
-        ("clock.arrow.circlepath", "Unlimited multi-month wave history and zoom"),
-        ("waveform.path.ecg", "Morning vs evening dual-wave comparison"),
-        ("lightbulb", "Best-time-of-day insights and gentle daily nudge")
+    private let benefits: [(icon: String, text: String)] = [
+        ("person.3.fill", "Unlimited people plus circle tags (family, work, friends) with per-circle health rings"),
+        ("clock.arrow.circlepath", "Full contact-history timeline per person and streak of weeks with zero overdue contacts"),
+        ("bell.badge", "Daily reminder notification and CSV export of your full touch log")
     ]
 
     var body: some View {
         NavigationStack {
             ZStack {
                 QMBackground()
-
-                ScrollView {
-                    VStack(spacing: 28) {
-                        // Icon + title
-                        VStack(spacing: 12) {
-                            Image(systemName: "waveform.path.ecg")
-                                .font(.system(size: 56, weight: .thin))
-                                .foregroundStyle(Color.qmAccent)
-
-                            Text("Tideline Pro")
-                                .font(.largeTitle.weight(.bold))
-
-                            Text("$0.99 / month. Auto-renews until you cancel.")
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                                .multilineTextAlignment(.center)
+                VStack(spacing: 0) {
+                    // Icon + headline
+                    VStack(spacing: 12) {
+                        ZStack {
+                            Circle()
+                                .strokeBorder(Color.qmAccent, lineWidth: 2)
+                                .frame(width: 72, height: 72)
+                            Circle()
+                                .fill(Color.qmAccent)
+                                .frame(width: 12, height: 12)
+                                .offset(x: 36, y: 0)
                         }
-                        .padding(.top, 16)
+                        .padding(.top, 36)
 
-                        // Benefits
-                        VStack(spacing: 0) {
-                            ForEach(Array(benefits.enumerated()), id: \.offset) { idx, benefit in
-                                HStack(spacing: 14) {
-                                    Image(systemName: benefit.0)
-                                        .foregroundStyle(Color.qmAccent)
-                                        .frame(width: 28)
-                                    Text(benefit.1)
-                                        .font(.subheadline)
-                                    Spacer()
-                                }
-                                .padding(.vertical, 14)
-                                .padding(.horizontal, 16)
+                        Text("Orbit Pro")
+                            .font(.title.weight(.bold))
 
-                                if idx < benefits.count - 1 {
-                                    Divider().padding(.leading, 58)
-                                }
+                        Text("$0.99 / month. Auto-renews until you cancel.")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                    }
+                    .padding(.horizontal)
+
+                    // Benefits
+                    VStack(spacing: 12) {
+                        ForEach(benefits, id: \.text) { benefit in
+                            HStack(alignment: .top, spacing: 14) {
+                                Image(systemName: benefit.icon)
+                                    .font(.body.weight(.semibold))
+                                    .foregroundStyle(Color.qmAccent)
+                                    .frame(width: 24)
+                                Text(benefit.text)
+                                    .font(.subheadline)
+                                    .foregroundStyle(.primary)
+                                Spacer()
                             }
+                            .qmCard()
                         }
-                        .background(Color.qmCard, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-                        .padding(.horizontal, 16)
+                    }
+                    .padding(.horizontal)
+                    .padding(.top, 24)
 
-                        // Unlock button
+                    Spacer()
+
+                    // CTA
+                    VStack(spacing: 14) {
                         Button {
-                            Task {
-                                await store.purchase()
-                            }
+                            Task { await store.purchase() }
                         } label: {
-                            HStack(spacing: 8) {
+                            Group {
                                 if store.purchaseInFlight {
                                     ProgressView()
                                         .tint(.white)
+                                } else {
+                                    Text("Unlock for \(store.displayPrice)/mo")
                                 }
-                                Text("Unlock for \(store.displayPrice)/month")
-                                    .frame(maxWidth: .infinity)
                             }
+                            .frame(maxWidth: .infinity)
                         }
                         .prominentButton()
                         .disabled(store.purchaseInFlight)
-                        .padding(.horizontal, 16)
 
-                        // Restore
-                        Button("Restore Purchase") {
+                        Button {
                             Task { await store.restore() }
+                        } label: {
+                            Text("Restore Purchase")
+                                .font(.subheadline)
+                                .foregroundStyle(Color.qmAccent)
                         }
-                        .font(.subheadline)
+
+                        // Auto-renew disclosure
+                        Text("Orbit Pro is \(store.displayPrice)/month. Subscription auto-renews monthly until cancelled. Cancel any time in Settings.")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+
+                        HStack(spacing: 16) {
+                            Link("Terms", destination: URL(string: "https://www.apple.com/legal/internet-services/itunes/dev/stdeula/")!)
+                            Link("Privacy", destination: URL(string: "https://shimondeitel.github.io/orbit-site/privacy.html")!)
+                        }
+                        .font(.caption2)
                         .foregroundStyle(Color.qmAccent)
 
-                        // Legal
-                        VStack(spacing: 8) {
-                            Text("Subscription automatically renews each month at \(store.displayPrice) unless cancelled at least 24 hours before the renewal date. Manage or cancel anytime in your Apple Account subscriptions.")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .multilineTextAlignment(.center)
-
-                            HStack(spacing: 16) {
-                                Link("Terms of Use", destination: URL(string: "https://www.apple.com/legal/internet-services/itunes/dev/stdeula/")!)
-                                    .font(.caption)
-                                    .foregroundStyle(Color.qmAccent)
-                                Link("Privacy Policy", destination: URL(string: "https://shimondeitel.github.io/tideline-site/privacy.html")!)
-                                    .font(.caption)
-                                    .foregroundStyle(Color.qmAccent)
+                        Button {
+                            if let url = URL(string: "https://apps.apple.com/account/subscriptions") {
+                                UIApplication.shared.open(url)
                             }
+                        } label: {
+                            Text("Manage Subscription")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
                         }
-                        .padding(.horizontal, 24)
-
-                        Spacer(minLength: 16)
                     }
+                    .padding(.horizontal, 24)
+                    .padding(.bottom, 32)
                 }
             }
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
+                ToolbarItem(placement: .cancellationAction) {
                     Button("Close") { dismiss() }
                 }
             }
